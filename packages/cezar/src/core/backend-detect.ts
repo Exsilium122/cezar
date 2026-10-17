@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveCursorAgentBin } from './cursor-agent-runner.ts';
-import { ANTIGRAVITY_OPT_IN_HINT, antigravityEnabled, resolveAntigravityBin } from './antigravity-runner.ts';
+import { resolveAntigravityBin } from './antigravity-runner.ts';
 import { resolveClaudeBin } from './claude-bin.ts';
 import { spawnableCommand } from './windows-shim.ts';
 
@@ -19,7 +19,7 @@ export interface BackendCheck {
 
 /**
  * Probe the host for everything cez leans on: the agent CLIs (`claude`, and
- * the optional `codex` / `opencode` / `cursor` / `pi` / `junie` / `copilot`
+ * the optional `codex` / `opencode` / `cursor` / `pi` / `junie` / `copilot` / `agy`
  * alternatives), `gh` (GitHub auth for PR creation) and `git`. Nothing is required except at
  * least one agent CLI — the GUI degrades gracefully, only offers the
  * runners that are present, and shows the hints for the rest.
@@ -200,24 +200,31 @@ async function probeAntigravity(): Promise<BackendCheck> {
   if (process.env.CEZ_DRY_RUN === '1') {
     return { name: 'antigravity', available: true, version: 'mock (CEZ_DRY_RUN=1)' };
   }
-  if (!antigravityEnabled()) {
-    return { name: 'antigravity', available: false, hint: ANTIGRAVITY_OPT_IN_HINT };
-  }
   const bin = resolveAntigravityBin();
   try {
     // `--version` needs no login and no network — the auth state is provider-auth.ts's job.
     const { stdout } = await exec(bin, ['--version'], { timeout: 10_000 });
+    const version = stdout.trim();
+    // agy prints a bare semver ("1.4.0"); anything else is another program that happens to be
+    // called `agy` on PATH.
+    if (version && !/^v?\d+\.\d+/.test(version)) {
+      return {
+        name: 'antigravity',
+        available: false,
+        hint: `\`${bin}\` resolves but doesn't look like the Antigravity CLI (got: ${version.slice(0, 80)})`,
+      };
+    }
     return {
       name: 'antigravity',
       available: true,
-      version: stdout.trim() || 'installed',
+      version: version || 'installed',
       hint: 'if not authenticated, run `agy` once and sign in with your Google account',
     };
   } catch {
     return {
       name: 'antigravity',
       available: false,
-      hint: 'optional: install the Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash) and sign in with `agy`',
+      hint: 'optional: install the Antigravity CLI (https://antigravity.google/docs/cli) and sign in with `agy` to use the Antigravity runner',
     };
   }
 }

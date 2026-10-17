@@ -66,7 +66,8 @@ interface AgentRunner {
   `waiting`, interrupt and resume all work: claude = stream-json over
   stdin/stdout; codex = `codex app-server` JSON-RPC 2.0 (JSONL) over
   stdin/stdout; opencode = `opencode serve` over HTTP + SSE; pi =
-  `pi --mode rpc` over JSONL stdin/stdout.
+  `pi --mode rpc` over JSONL stdin/stdout; antigravity = `agy --input-format stream-json --output-format stream-json`
+  over NDJSON stdin/stdout.
 
 ### `AgentSession`
 
@@ -328,6 +329,14 @@ transport into `UiEvent`s. The authoritative table is
 | subagent nesting (`parentItemId`) | `parent_tool_use_id` | collaboration receiver thread id (review mode remains childless) | child-session parts under a `subtask` | *(none — print-mode wire has no parent attribution; the task-kind tool item is the matrix cell)* | `_meta["github.com/copilot"].agentId`, which IS the delegating `task` call's `toolCallId` |
 | `usage.updated` | `result.usage` + `total_cost_usd` | `thread/tokenUsage/updated` (no USD) | `message.updated` tokens/cost + `step-finish` | *(none — the documented terminal `result` frame carries no `usage`/`total_cost_usd` field)* | the `session/prompt` result's top-level `usage` (no USD). Its separate `usage_update` frame is a context-window gauge (`{used, size}`), NOT token counts, and is deliberately unmapped |
 
+`antigravity` speaks agy's own stream-json (`core/antigravity-ui-mapper.ts`): `init` →
+`session.started`, each stdin message's `user_input` step → `turn.started`, `agent_response` steps →
+message items (`text_delta`), `tool` / `subagent` steps → tool / task items, `result` →
+`turn.completed`. Turn usage is the sum of the steps' own `usage` — `result.usage` is
+cumulative for the whole conversation. The wire carries no plan, no reasoning text, no edit
+content and no parent attribution; `__fixtures__/antigravity/README.md` records the live
+captures behind each of those parity exceptions.
+
 `copilot` shares one vendor-neutral transport and mapper with any future ACP backend
 (`core/acp-client.ts`, `core/acp-ui-mapper.ts`); what differs per agent is a small `AcpDialect`
 (`core/copilot-ui-mapper.ts`). The wire record behind the column above is
@@ -540,16 +549,3 @@ breaking change requiring the documented deprecation path.
 - `BACKWARD_COMPATIBILITY.md` — §7 (this protocol) and §2/§3 (SSE names, NDJSON).
 - `.ai/analysis/cockpit-ui-redesign/agent-event-protocols.md` — the deep design record (§7, §7.1).
 - `.ai/specs/2026-07-14-cockpit-ui-redesign.md` — the spec (protocol v2, parity requirement).
-
-
-## Local Antigravity extension
-
-`antigravity-runner.ts` implements the same seam using `agy -p` and
-`--output-format stream-json`. Its mapper folds `init`, `step_update`, and
-`result` into both event streams. One process per turn; `sendMessage` returns
-false and Continue resumes through `--conversation`. Source:
-https://antigravity.google/docs/cli/headless/ (checked 2026-10-14).
-Golden fixtures and the parity matrix cover text, tools, errors, usage and
-turn completion. Headless step types expose no plan or reasoning text, and
-write tool captures contain paths without file content, so those parity cells
-are explicitly excluded. No backend-specific orchestration is added.

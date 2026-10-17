@@ -2,10 +2,16 @@
   {
     "type": "session.started",
     "backend": "antigravity",
-    "sessionId": "fixture",
+    "sessionId": "2897cb98-2f00-408f-90c2-9d0f83dd2a62",
     "cwd": "/repo",
     "tools": [
-      "run_command"
+      "invoke_subagent",
+      "manage_subagents",
+      "manage_task",
+      "replace_file_content",
+      "run_command",
+      "view_file",
+      "write_to_file"
     ]
   },
   {
@@ -18,7 +24,7 @@
       "kind": "message",
       "id": "msg_1",
       "role": "assistant",
-      "text": "Hello"
+      "text": "PONG"
     }
   },
   {
@@ -33,7 +39,7 @@
       "kind": "message",
       "id": "msg_1",
       "role": "assistant",
-      "text": "Hello\n"
+      "text": "PONG\n"
     }
   },
   {
@@ -41,21 +47,19 @@
     "turnId": "turn_1",
     "stopReason": "end_turn",
     "usage": {
-      "input": 10,
-      "output": 5,
-      "total": 15,
-      "reasoning": 2,
-      "cacheRead": 3
+      "input": 14561,
+      "output": 26,
+      "total": 14587,
+      "reasoning": 24
     }
   },
   {
     "type": "usage.updated",
     "usage": {
-      "input": 10,
-      "output": 5,
-      "total": 15,
-      "reasoning": 2,
-      "cacheRead": 3
+      "input": 14561,
+      "output": 26,
+      "total": 14587,
+      "reasoning": 24
     }
   }
 ]

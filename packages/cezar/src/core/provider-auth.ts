@@ -419,15 +419,14 @@ const DESCRIPTORS: readonly ProviderDescriptor[] = [
     id: 'antigravity',
     overrideEnv: 'CEZ_AGY_BIN',
     executable: () => process.env.CEZ_AGY_BIN ?? 'agy',
-    // `agy models` needs a session and exits 1 with "Please sign in…" without one (agy 1.3.3), in
-    // under a second and without prompting — the cheapest definitive signed-in check the CLI has.
+    // `agy models` needs a session: signed in it lists the account's models and exits 0 (agy 1.4.0),
+    // signed out it exits 1 asking to sign in — without prompting and without spending a request.
     statusArgs: ['models'],
+    // agy has no login subcommand; the first interactive `agy` launch runs the Google sign-in.
     loginArgs: [],
-    installHint:
-      'Enable CEZ_ANTIGRAVITY=1, install the official Antigravity CLI, then run agy in a terminal to sign in.',
+    updateArgs: ['update'],
+    installHint: 'Install the Antigravity CLI (https://antigravity.google/docs/cli), then run `agy` once and sign in with Google.',
     parse: parseAntigravityStatus,
-    // Off by default: do not spawn the authenticated CLI to ask it anything.
-    precheck: () => (process.env.CEZ_ANTIGRAVITY === '1' ? undefined : 'not-installed'),
   },
 ];
 

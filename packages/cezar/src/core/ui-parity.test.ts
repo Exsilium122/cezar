@@ -78,7 +78,8 @@ const CAPABILITIES: ReadonlyArray<
   [
     'plan.updated with entries (TodoWrite / todoList / todowrite)',
     (events) => events.some((e) => e.type === 'plan.updated' && e.entries.length > 0),
-    // agy headless step types carry no plan: antigravity.google/docs/cli/headless/.
+    // agy's stream-json has no plan frame, and its `manage_task` tool manages BACKGROUND tasks
+    // (live agy 1.4.0 capture `__fixtures__/antigravity/subagent-turn.ndjson`, step 4), not a todo list.
     ['antigravity'],
   ],
   ['tool status: running', (events) => hasToolStatus(events, 'running')],
@@ -91,13 +92,15 @@ const CAPABILITIES: ReadonlyArray<
     (events) => items(events).some((item) => item.kind === 'reasoning' && item.text.trim() !== ''),
     // Cursor's docs are explicit: "`thinking` events are suppressed in print mode and will
     // not appear in any output format" (cursor.com/docs/cli/reference/output-format).
-    // agy headless exposes thinking token counts, no reasoning text (same source).
+    // agy's `agent_response` steps report `usage.thinking_tokens` but never the thinking text
+    // (live agy 1.4.0, `__fixtures__/antigravity/subagent-turn.ndjson`: 3139 thinking tokens, no text).
     ['cursor', 'antigravity'],
   ],
   [
     'structured diffs (Edit input / fileChange.changes / patch parts)',
     (events) => items(events).some((item) => item.kind === 'tool' && (item.diffs?.length ?? 0) > 0),
-    // agy 1.3.3 write captures contain TargetFile without content; no diff can be reconstructed.
+    // agy's write/edit steps carry only `TargetFile` — no content, no old/new text — so no diff can
+    // be reconstructed (live agy 1.4.0: `write_to_file` in tools-turn, `replace_file_content` in subagent-turn).
     ['antigravity'],
   ],
   [
@@ -146,6 +149,9 @@ describe('protocol v2 backend parity (all first-class mappers emit every matrix 
   // no parent-item id either — all three's matrix cell is the task-kind tool
   // items asserted above. junie (core ACP) has no parent attribution either, and
   // its task-kind substitute is excluded above for the same protocol reason.
+  // Antigravity runs a subagent in its OWN conversation (`subagent_info.subagents[].conversation_id`)
+  // and never streams that conversation's steps on the parent's stdout, so its cell is the
+  // task-kind item too (live agy 1.4.0, `__fixtures__/antigravity/subagent-turn.ndjson`).
   for (const backend of ['claude', 'opencode', 'copilot'] as const) {
     it(`${backend} nests sub-agent work via parentItemId`, () => {
       expect(items(fixtureEvents(backend)).some((item) => item.parentItemId !== undefined)).toBe(true);

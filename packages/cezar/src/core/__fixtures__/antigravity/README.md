@@ -2,39 +2,42 @@
 
 ## Provenance
 
-`AGENT_PROTOCOL.md` §7 requires verified wire shapes and explicit sources.
-These transcripts split the synthetic fixture inherited from commit `78cecc0b`.
-**None of the frames in these four files has been captured live.**
-Source: [Antigravity headless CLI documentation](https://antigravity.google/docs/cli/headless/),
-consulted on **2026-10-14**. A documentation-derived shape is not a live capture.
+Every `.ndjson` here is a **live capture** of the Google Antigravity CLI's stdout — `agy` 1.4.0
+(WinGet `Google.AntigravityCLI`), captured 2026-10-17 on a signed-in Google AI Pro account. None
+of the frames is synthetic. Redaction only: the capture directory became `/repo`, the user's home
+became `/home/user`, and the `init` frame's ~60-name `tools` list was trimmed to the tools these
+transcripts use. Conversation ids, step indexes, timings and token counts are verbatim.
 
-| Fixture / frames | Source and limitation |
-| --- | --- |
-| All: `init` and `result` | Documentation's initialization and result envelope/usage fields; conversation ID `fixture`, paths and token counts are synthetic example values. |
-| `text-turn`: both `step_update` frames | Documentation's `agent_response`, `ACTIVE`/`DONE` and `text_delta`; text and indexes are illustrative. |
-| `tools-turn`: both `step_update` frames | Documentation's tool lifecycle and `tool_info`; `run_command`, TitleCase parameters and output are inherited offline examples, awaiting live verification. |
-| `tool-error`: `step_update` | Inherited synthetic `ERROR` state with `tool_info.error.message`, not independently verified by a live capture. The surrounding step/tool envelope is documentation-derived. |
-| `subagent`: `step_update` | Documentation's `subagent_info.subagents` shape; `delegate`, reviewer role and child conversation ID are synthetic placeholders. No live subagent trace exists here. |
+| Fixture | Command (`--output-format stream-json --dangerously-skip-permissions` on all) | What it pins |
+| --- | --- | --- |
+| `text-turn` | `agy -p "Reply with exactly: PONG"` | `init` without `model`, streamed `text_delta`, per-step `usage` |
+| `tools-turn` | `agy -p "Read a.txt, then create b.txt …, then run git status …" --model gemini-3.8-flash-low` | `view_file` / `write_to_file` / `run_command` lifecycles, TitleCase `parameters`, `output` |
+| `tool-error` | `agy -p "Read the file missing-file-xyz.txt …" --model gemini-3.8-flash-low` | `state: "ERROR"` with `tool_info.error.{type,message}` inside a SUCCESS turn |
+| `subagent-turn` | `agy -p "… manage_task … replace_file_content … invoke_subagent …" --model gemini-3.8-flash-high` | `step_type: "subagent"` with `subagent_info.subagents[]`, `system_message` steps, `cache_read_tokens` |
+| `resumed-turn` | `agy -p "…" --conversation <tools-turn id>` | step indexes continue the old conversation; `result.usage` / `num_turns` are conversation-cumulative |
+| `two-turn-session` | `agy --input-format stream-json … -p=` fed two `{"event":"user","message":{"content":…}}` lines | one process, two turns, one `result` per turn, cumulative `result.usage` |
+| `bad-model` | `agy -p "x" --model bogus-model` | ERROR `result` with an empty `conversation_id` and no `init`; the process exits 1 |
 
-The old mapper comment claimed observations from agy 1.3.3 captures, but the
-approved branch contains no auditable capture supporting that claim. This README
-supersedes it rather than presenting the inherited examples as captured evidence.
-In particular, `ERROR`, TitleCase parameter spelling and the delegation tool name
-still require verification before an upstream contribution can be considered ready.
+## What the wire does not carry
+
+These are the parity-matrix exceptions in `ui-parity.test.ts`, each observed rather than assumed:
+
+- **Plan** — no plan frame exists; `manage_task` (subagent-turn, step 4) manages *background*
+  tasks (`"No background tasks are currently running."`), not a todo list.
+- **Reasoning text** — `agent_response` steps report `usage.thinking_tokens` (3139 in
+  subagent-turn) but never the thinking itself.
+- **Structured diffs** — `write_to_file` and `replace_file_content` carry only `TargetFile`;
+  there is no old/new text to build a diff from. The Changes tab still shows the worktree diff.
+- **Sub-agent nesting** — a subagent runs in its own conversation (`conversation_id`,
+  `log_uri`); none of its steps appear on the parent's stdout. Its cell is the task item.
 
 ## Layout and replay
 
-Each `.ndjson` contains raw stdout frames in order; its `.expected.json` contains
-hand-maintained UI events separated from the previously reviewed combined expectation.
-`antigravity-ui-mapper.test.ts` replays every scenario, checks immutable previous state,
-and compares the JSON round-trip of all events with `toStrictEqual`.
-`tool-error` exercises a failed tool inside a successful turn, not a fatal CLI result.
+Each `.expected.json` is the exact `UiEvent[]` `antigravity-ui-mapper.ts` produces for its
+`.ndjson`, replayed line by line exactly as `AntigravityRunner` feeds it (no seeding — agy's own
+`user_input` step opens each turn). `antigravity-ui-mapper.test.ts` asserts it with
+`toStrictEqual` after a JSON round-trip and checks the mapper never mutates its input state;
+`ui-parity.test.ts` reads the same files.
 
-## Required live follow-up
-
-On an authenticated machine, capture a text/tool turn and a missing-file tool error
-with `agy -p ... --output-format stream-json --dangerously-skip-permissions`.
-Review and redact personal paths/data before committing. Replace these examples and
-record the CLI version, capture date and exact frame provenance. A subagent capture
-is also needed to verify the documentation-derived delegation example.
-The local tests use isolated Node scripts; they never invoke an authenticated `agy`.
+To refresh after a CLI change: re-run the commands above in a scratch git repo, redact as
+described, regenerate the expectations, and review the diff of every `.expected.json` by hand.

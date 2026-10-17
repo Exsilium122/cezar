@@ -2,10 +2,17 @@
   {
     "type": "session.started",
     "backend": "antigravity",
-    "sessionId": "fixture",
+    "sessionId": "cee872c9-0b46-48ac-b957-98677f3cd7db",
+    "model": "gemini-3.8-flash-low",
     "cwd": "/repo",
     "tools": [
-      "run_command"
+      "invoke_subagent",
+      "manage_subagents",
+      "manage_task",
+      "replace_file_content",
+      "run_command",
+      "view_file",
+      "write_to_file"
     ]
   },
   {
@@ -17,14 +24,19 @@
     "item": {
       "kind": "tool",
       "id": "step_2",
-      "name": "Bash",
-      "title": "Ran echo hello",
-      "toolKind": "execute",
+      "name": "Read",
+      "title": "Read /repo/a.txt",
+      "toolKind": "read",
       "status": "running",
       "input": {
-        "CommandLine": "echo hello",
-        "command": "echo hello"
-      }
+        "AbsolutePath": "/repo/a.txt",
+        "path": "/repo/a.txt"
+      },
+      "locations": [
+        {
+          "path": "/repo/a.txt"
+        }
+      ]
     }
   },
   {
@@ -32,15 +44,115 @@
     "item": {
       "kind": "tool",
       "id": "step_2",
+      "name": "Read",
+      "title": "Read /repo/a.txt",
+      "toolKind": "read",
+      "status": "completed",
+      "input": {
+        "AbsolutePath": "/repo/a.txt",
+        "path": "/repo/a.txt"
+      },
+      "locations": [
+        {
+          "path": "/repo/a.txt"
+        }
+      ],
+      "output": "2 lines, 6 bytes"
+    }
+  },
+  {
+    "type": "item.started",
+    "item": {
+      "kind": "tool",
+      "id": "step_4",
+      "name": "Write",
+      "title": "Write /repo/b.txt",
+      "toolKind": "edit",
+      "status": "running",
+      "input": {
+        "TargetFile": "/repo/b.txt",
+        "path": "/repo/b.txt"
+      },
+      "locations": [
+        {
+          "path": "/repo/b.txt"
+        }
+      ]
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "kind": "tool",
+      "id": "step_4",
+      "name": "Write",
+      "title": "Write /repo/b.txt",
+      "toolKind": "edit",
+      "status": "completed",
+      "input": {
+        "TargetFile": "/repo/b.txt",
+        "path": "/repo/b.txt"
+      },
+      "locations": [
+        {
+          "path": "/repo/b.txt"
+        }
+      ]
+    }
+  },
+  {
+    "type": "item.started",
+    "item": {
+      "kind": "tool",
+      "id": "step_6",
       "name": "Bash",
-      "title": "Ran echo hello",
+      "title": "Ran git status --short",
+      "toolKind": "execute",
+      "status": "running",
+      "input": {
+        "CommandLine": "git status --short",
+        "command": "git status --short"
+      }
+    }
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "kind": "tool",
+      "id": "step_6",
+      "name": "Bash",
+      "title": "Ran git status --short",
       "toolKind": "execute",
       "status": "completed",
       "input": {
-        "CommandLine": "echo hello",
-        "command": "echo hello"
+        "CommandLine": "git status --short",
+        "command": "git status --short"
       },
-      "output": "hello"
+      "output": "?? a.txt\n?? b.txt\n?? text.err\n?? text.ndjson\n?? tools.err\n?? tools.ndjson\n"
+    }
+  },
+  {
+    "type": "item.started",
+    "item": {
+      "kind": "message",
+      "id": "msg_7",
+      "role": "assistant",
+      "text": "DONE."
+    }
+  },
+  {
+    "type": "item.delta",
+    "itemId": "msg_7",
+    "field": "text",
+    "delta": "\n"
+  },
+  {
+    "type": "item.completed",
+    "item": {
+      "kind": "message",
+      "id": "msg_7",
+      "role": "assistant",
+      "text": "DONE.\n"
     }
   },
   {
@@ -48,21 +160,17 @@
     "turnId": "turn_1",
     "stopReason": "end_turn",
     "usage": {
-      "input": 10,
-      "output": 5,
-      "total": 15,
-      "reasoning": 2,
-      "cacheRead": 3
+      "input": 59539,
+      "output": 178,
+      "total": 59717
     }
   },
   {
     "type": "usage.updated",
     "usage": {
-      "input": 10,
-      "output": 5,
-      "total": 15,
-      "reasoning": 2,
-      "cacheRead": 3
+      "input": 59539,
+      "output": 178,
+      "total": 59717
     }
   }
 ]

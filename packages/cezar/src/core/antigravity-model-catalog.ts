@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { buildChildEnv } from './agent-env.ts';
-import { antigravityEnabled, ANTIGRAVITY_OPT_IN_HINT, resolveAntigravityBin } from './antigravity-runner.ts';
+import { resolveAntigravityBin } from './antigravity-runner.ts';
 import type { ModelOption } from './runner-model-catalog.ts';
+import { spawnableCommand } from './windows-shim.ts';
 
+/** `agy models` prints a "Fetching…" banner, then one `<id>\t<label>` row per model (agy 1.4.0). */
 export function parseAntigravityModelsOutput(output: string): ModelOption[] {
   const models = new Map<string, ModelOption>();
   for (const line of output.split(/\r?\n/)) {
@@ -12,10 +14,12 @@ export function parseAntigravityModelsOutput(output: string): ModelOption[] {
   }
   return [...models.values()];
 }
+
 export async function discoverAntigravityModels(): Promise<ModelOption[]> {
-  if (!antigravityEnabled()) throw new Error(ANTIGRAVITY_OPT_IN_HINT);
-  const { stdout } = await promisify(execFile)(resolveAntigravityBin(), ['models'], {
-    timeout: 15_000, maxBuffer: 2 * 1024 * 1024, env: buildChildEnv({ backend: 'antigravity' }),
+  const { stdout } = await promisify(execFile)(...spawnableCommand(resolveAntigravityBin(), ['models']), {
+    timeout: 15_000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: buildChildEnv({ backend: 'antigravity' }),
   });
   const models = parseAntigravityModelsOutput(stdout);
   if (!models.length) throw new Error('Antigravity returned no models');
