@@ -8,6 +8,7 @@ import { AntigravityRunner, antigravityUserFrame, buildAntigravityArgs } from '.
 import { createRunner } from './runner-factory.ts';
 import { buildChildEnv } from './agent-env.ts';
 import { parseAntigravityModelsOutput } from './antigravity-model-catalog.ts';
+import { isRuntimeProviderAuthFailure } from './provider-auth.ts';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -203,8 +204,9 @@ describe('Antigravity runner', () => {
   it('fails fast on a sign-in prompt', async () => {
     const bin = await script(`console.error('Authentication required');setInterval(()=>{},1000);`);
     await expect(new AntigravityRunner({ bin, killGraceMs: 50 }).run({ cwd: tmpdir(), userPrompt: 'test' })).rejects.toThrow(
-      'authentication required',
+      'authentication failed',
     );
+    expect(isRuntimeProviderAuthFailure('Antigravity authentication failed — run agy')).toBe(true);
   });
 
   it('uses CEZ_AGY_BIN when no explicit binary was supplied, and an explicit binary over it', async () => {

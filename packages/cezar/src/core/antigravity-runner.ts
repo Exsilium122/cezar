@@ -246,7 +246,7 @@ export class AntigravityRunner implements AgentRunner {
         throw new Error(message);
       };
       if (spawnError) fail((spawnError as Error).message);
-      if (authRequired) fail('Antigravity authentication required — run `agy` in a terminal and sign in with your Google account.');
+      if (authRequired) fail('Antigravity authentication failed — run `agy` in a terminal and sign in with your Google account.');
       if (timedOut) fail(`Antigravity CLI timed out after ${Math.round((limitMs / 60_000) * 10) / 10}m and was killed`, 'timeout');
       // A stop cezar asked for is never an agent failure (#703) — on Windows a killed agy exits 1,
       // not 128+signal, so the flag decides rather than `isSignalTerminationExit` alone.

@@ -36,7 +36,7 @@ vi.mock('../core/junie-auth-probe.ts', () => ({
 
 /** One status command per provider — the size of a full probe round. Junie is probed through
  *  `probeJunieAuthentication` (mocked above), never `runCommand`, so it is not counted. */
-const PROBE_ROUND = PROVIDER_IDS.filter((provider) => provider !== 'junie' && provider !== 'antigravity').length;
+const PROBE_ROUND = PROVIDER_IDS.filter((provider) => provider !== 'junie').length;
 
 const CONNECTED_OUTPUT: Record<ProviderId, string> = {
   claude: '{"loggedIn":true}',
@@ -59,7 +59,8 @@ const CONNECTED_OUTPUT: Record<ProviderId, string> = {
   // Copilot's probe drives its ACP server, so its "connected" evidence is the `session/new`
   // answer (`.ai/runs/2026-09-27-copilot-cli-runner/copilot-acp-notes.md`).
   copilot: '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"3f1b6f2e-0000-4000-8000-1f2e3d4c5b6a"}}',
-  antigravity: 'Please sign in',
+  // `agy models` lists the signed-in account's models (live agy 1.4.0 output).
+  antigravity: 'Fetching available models...\ngemini-3.8-flash-high\tGemini 3.8 Flash (High)',
 };
 
 const DISCONNECTED_OUTPUT: Record<ProviderId, string> = {
@@ -81,6 +82,7 @@ const DISCONNECTED_OUTPUT: Record<ProviderId, string> = {
 
 const providerForExecutable = (executable: string): ProviderId => {
   if (executable === 'claude' || executable === 'codex' || executable === 'opencode' || executable === 'pi' || executable === 'junie' || executable === 'copilot') return executable;
+  if (executable === 'agy') return 'antigravity';
   if (executable === 'agent') return 'cursor';
   throw new Error(`unexpected executable: ${executable}`);
 };
@@ -213,7 +215,7 @@ describe('workspace provider API', () => {
         { provider: 'pi', status: 'connected', enabled: true },
         { provider: 'junie', status: 'connected', enabled: true },
         { provider: 'copilot', status: 'connected', enabled: true },
-        { provider: 'antigravity', status: 'not-installed', enabled: true },
+        { provider: 'antigravity', status: 'connected', enabled: true },
       ],
     });
   });
