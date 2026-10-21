@@ -44,6 +44,10 @@ export type LanApplyResult = { ok: true } | { ok: false; status: 400 | 409; erro
 
 /** Failed sign-ins per client IP before it is told to wait; scrypt alone is a slow brake. */
 const MAX_FAILURES = 10;
+/** A well-formed hash nothing verifies against, so an unconfigured server still pays for scrypt. */
+const DECOY_HASH = { salt: '0'.repeat(32), hash: '0'.repeat(128) };
+/** A LAN connection must send its first byte within this, or it is closed (slowloris). */
+const FIRST_BYTE_TIMEOUT_MS = 10_000;
 const FAILURE_WINDOW_MS = 5 * 60_000;
 
 /** This machine's reachable IPv4 addresses (no loopback, no 169.254 link-local). */
@@ -123,9 +127,11 @@ export class LanAccess {
     const credentials = this.deps.parseBasicAuth(header);
     if (!credentials) return 'challenge'; // the browser's first, credential-less request is no failure
     const auth = this.auth;
-    const ok = !!auth
-      && this.deps.safeEqualString(credentials.username, auth.username)
-      && await this.deps.verifyPassword(credentials.password, auth);
+    // Both checks always run, scrypt included: a wrong username must cost what a wrong password
+    // does, or response time tells a LAN client which usernames exist.
+    const userMatches = this.deps.safeEqualString(credentials.username, auth?.username ?? '');
+    const passwordMatches = await this.deps.verifyPassword(credentials.password, auth ?? DECOY_HASH);
+    const ok = !!auth && userMatches && passwordMatches;
     if (ok && auth === this.auth) {
       this.verified.add(digest(header!));
       this.failures.delete(ip);
@@ -255,7 +261,10 @@ export class LanAccess {
     this.rawSockets.add(socket);
     socket.once('close', () => this.rawSockets.delete(socket));
     socket.on('error', () => undefined);
+    socket.setTimeout(FIRST_BYTE_TIMEOUT_MS, () => socket.destroy());
     socket.once('data', (chunk) => {
+      // TLS and HTTP enforce their own handshake and header timeouts from here on.
+      socket.setTimeout(0);
       socket.pause();
       socket.unshift(chunk);
       (chunk[0] === 0x16 ? tls : this.redirector).emit('connection', socket);

@@ -64,7 +64,14 @@ Three parts of the proposal were changed while building it. Each kept the goal a
    (`localHandoff`, `terminal`, `designMode` off) without threading the request through ~30 call
    sites; loopback requests are unchanged.
 
-Also added: `PUT /security/lan` is refused (`409`) from the LAN — a LAN client cannot re-key or
+4. **No WebSocket over the LAN.** A LAN cockpit runs in remote mode, which opens no browser
+   WebSocket, and the hub's topics publish the host's own view (local capabilities, absolute
+   paths) to every subscriber. `verifyWsUpgrade` therefore refuses every LAN upgrade; LAN
+   browsers stay live through SSE, which passes the same Basic Auth gate as every other request.
+   (§ Security & Edge Cases 4 is superseded for WebSocket.)
+
+Also added: a wrong username costs the same scrypt as a wrong password (no username timing
+oracle); a LAN connection must send its first byte within 10 s. `PUT /security/lan` is refused (`409`) from the LAN — a LAN client cannot re-key or
 widen its own access; credential changes and switching off drop every open LAN socket; ten failed
 sign-ins per address answer `429` for five minutes; verified `Authorization` headers are cached
 by SHA-256 so a page load costs one scrypt; the status shows the certificate's SHA-256 fingerprint

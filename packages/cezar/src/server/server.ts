@@ -8034,15 +8034,10 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
 export function verifyWsUpgrade(req: IncomingMessage, bindHost?: string, lanAccess?: LanAccess): WsUpgradeVerdict {
   const host = req.headers.host;
   const hostName = hostnameOfHost(host);
-  // A LAN socket (spec 2026-10-20-lan-basic-auth-https): our own LAN Host, credentials the HTTP
-  // gate already verified (the page signed in before it opened the socket), and the cockpit's
-  // own origin — no loopback dev-proxy fallback applies to another machine.
-  if (lanAccess?.isLanSocket(req.socket)) {
-    if (!lanAccess.isAllowedHost(host) || !lanAccess.isVerified(req.headers.authorization)) return false;
-    const lanOrigin = req.headers.origin;
-    if (lanOrigin === undefined) return { trusted: true };
-    return authorityOfOrigin(lanOrigin) === authorityOfHost(host) ? { trusted: true } : false;
-  }
+  // A LAN client (spec 2026-10-20-lan-basic-auth-https) gets no socket at all: its cockpit runs
+  // in remote mode, which opens none, and the topics publish the host's own view (local
+  // capabilities, absolute paths) to every subscriber alike.
+  if (lanAccess?.isLanSocket(req.socket)) return false;
   const hosted = !resolveCapabilities(process.env, bindHost).localHandoff;
   if (!hosted && !isLoopbackHostHeader(hostName)) return false;
   const origin = req.headers.origin;

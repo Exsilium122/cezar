@@ -91,6 +91,21 @@ describe('LanAccess (unit)', () => {
     expect(await access.authorize(basic('alex', 'second-pass'), '10.0.0.9')).toBe('ok');
   });
 
+  it('pays for scrypt on a wrong username too, so timing does not reveal valid usernames', async () => {
+    let verifications = 0;
+    const access = new LanAccess({
+      hashPassword: async (password) => ({ salt: '00', hash: Buffer.from(password).toString('hex') }),
+      verifyPassword: async () => { verifications += 1; return false; },
+      parseBasicAuth, safeEqualString,
+      loadOrCreateCert: () => { throw new Error('unused'); },
+      available: () => true, config, addresses: () => [], now: () => clock,
+    });
+    expect(await access.authorize(basic('nobody', 'whatever-1'), '10.0.0.9')).toBe('challenge'); // nothing configured yet
+    await access.apply({ lanAccess: false, username: 'alex', password: 'the-password' });
+    expect(await access.authorize(basic('nobody', 'whatever-2'), '10.0.0.9')).toBe('challenge');
+    expect(verifications).toBe(2);
+  });
+
   it('throttles one address after repeated failures, not its neighbours, and lets it retry later', async () => {
     const access = lan();
     await access.apply({ lanAccess: false, username: 'alex', password: 'the-password' });
@@ -263,19 +278,21 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
     expect(reply.headers.location).toBe(`https://${LAN_IP}:${port}/tasks?x=1`);
   });
 
-  it('admits a signed-in WebSocket and refuses an anonymous one', async () => {
+  it('refuses every WebSocket over the LAN, signed in or not, and still admits loopback', async () => {
     await enable();
-    expect((await overLan('GET', '/api/v1/health', AUTH)).status).toBe(200); // the page signs in first
-    const open = (headers: Record<string, string>) => new Promise<boolean>((resolve) => {
-      const socket = new WebSocket(`wss://${LAN_IP}:${port}/api/v1/ws`, { ca: ca(), headers: { origin: `https://${LAN_IP}:${port}`, ...headers } });
+    expect((await overLan('GET', '/api/v1/health', AUTH)).status).toBe(200); // the page signed in first
+    const open = (url: string, headers: Record<string, string>, tls: boolean) => new Promise<boolean>((resolve) => {
+      const socket = new WebSocket(url, { ...(tls ? { ca: ca(), servername: LAN_IP } : {}), headers });
       socket.once('open', () => { socket.close(); resolve(true); });
       socket.once('error', () => resolve(false));
       socket.once('unexpected-response', () => resolve(false));
       socket.once('close', () => resolve(false)); // a refused handshake may only ever close
     });
-    expect(await open(AUTH)).toBe(true);
-    expect(await open({})).toBe(false);
-    expect(await open({ ...AUTH, origin: 'https://evil.test' })).toBe(false);
+    const lanOrigin = `https://${LAN_IP}:${port}`;
+    expect(await open(`wss://${LAN_IP}:${port}/api/v1/ws`, { ...AUTH, origin: lanOrigin }, true)).toBe(false);
+    expect(await open(`wss://${LAN_IP}:${port}/api/v1/ws`, { origin: lanOrigin }, true)).toBe(false);
+    // The loopback cockpit's socket is untouched (#426 rules).
+    expect(await open(`ws://127.0.0.1:${port}/api/v1/ws`, { origin: `http://127.0.0.1:${port}` }, false)).toBe(true);
   });
 
   it('switching off closes the listener and drops LAN sessions already open', async () => {
