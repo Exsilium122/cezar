@@ -2028,7 +2028,14 @@ export function createApp(deps: ServerDeps) {
   // statement's return value is discarded, so `typeof app` would record nothing
   // and `hc<AppType>` would have no endpoint to offer. `createApp` mounts this
   // under both `/api` (the frozen legacy spelling) and `/api/v1`.
-  const healthRoutes = new Hono().get('/health', async (c) => c.json(await readHealth()));
+  // The cache is computed for whoever asked first; a LAN request (spec 2026-10-20) re-derives the
+  // two request-scoped fields, or a LAN cockpit would believe it sits at this machine's keyboard.
+  const scopedHealth = (payload: HealthPayload): HealthPayload => {
+    if (lanClientScope.getStore() !== true) return payload;
+    const caps = capabilities();
+    return { ...payload, capabilities: caps, repoRoot: caps.localHandoff ? bootRoot : basename(bootRoot) };
+  };
+  const healthRoutes = new Hono().get('/health', async (c) => c.json(scopedHealth(await readHealth())));
 
   // The push twin of the poll it replaced (#369): while at least one cockpit
   // holds the `health` topic the server re-reads the snapshot on the old 5 s

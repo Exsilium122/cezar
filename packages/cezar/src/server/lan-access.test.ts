@@ -158,8 +158,11 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
     server = undefined;
     store.flush();
-    rmSync(repoRoot, { recursive: true, force: true });
-    rmSync(home, { recursive: true, force: true });
+    // On Windows a background `git` the health/skills probes spawned can still hold the repo as
+    // its cwd; a leaked temp dir is not a failure of the code under test.
+    for (const dir of [repoRoot, home]) {
+      try { rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); } catch { /* see above */ }
+    }
     if (savedHome === undefined) delete process.env.CEZ_HOME;
     else process.env.CEZ_HOME = savedHome;
     if (savedDryRun === undefined) delete process.env.CEZ_DRY_RUN;
@@ -187,7 +190,7 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
     new Promise<Reply>((resolve, reject) => {
       const payload = json === undefined ? undefined : JSON.stringify(json);
       const req = httpsRequest({
-        host: LAN_IP, port, method, path, agent: false, ca: ca(),
+        host: LAN_IP, port, method, path, agent: false, ca: ca(), servername: LAN_IP,
         headers: { host: `${LAN_IP}:${port}`, ...(payload ? { 'content-type': 'application/json' } : {}), ...headers },
       }, collect(resolve));
       req.on('error', reject);
@@ -257,6 +260,7 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
       socket.once('open', () => { socket.close(); resolve(true); });
       socket.once('error', () => resolve(false));
       socket.once('unexpected-response', () => resolve(false));
+      socket.once('close', () => resolve(false)); // a refused handshake may only ever close
     });
     expect(await open(AUTH)).toBe(true);
     expect(await open({})).toBe(false);

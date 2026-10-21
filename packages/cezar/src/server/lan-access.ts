@@ -69,6 +69,8 @@ function lanHostnames(addresses: string[]): string[] {
 export class LanAccess {
   private listeners: NetServer[] = [];
   private readonly lanSockets = new Set<TLSSocket>();
+  /** Every TCP connection the LAN listeners accepted, handshake done or not: `close()` waits on them. */
+  private readonly rawSockets = new Set<Socket>();
   /** SHA-256 of `Authorization` headers that verified, so a page's hundred requests cost one
    *  scrypt. Cleared on every credential change. */
   private readonly verified = new Set<string>();
@@ -250,6 +252,8 @@ export class LanAccess {
   /** One port, two protocols: a TLS ClientHello starts with 0x16; anything else is a browser that
    *  typed `http://`, which gets a redirect rather than a reset. */
   private route(socket: Socket, tls: ReturnType<typeof createTlsServer>): void {
+    this.rawSockets.add(socket);
+    socket.once('close', () => this.rawSockets.delete(socket));
     socket.on('error', () => undefined);
     socket.once('data', (chunk) => {
       socket.pause();
@@ -274,6 +278,8 @@ export class LanAccess {
     this.boundAddresses = [];
     this.allowedHosts = new Set();
     this.dropSessions();
+    for (const socket of this.rawSockets) socket.destroy();
+    this.rawSockets.clear();
     await Promise.all(listeners.map((listener) => new Promise<void>((resolve) => listener.close(() => resolve()))));
   }
 
