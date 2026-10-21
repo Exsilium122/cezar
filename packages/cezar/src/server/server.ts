@@ -273,7 +273,8 @@ import { reviewGateEnabled } from '../runs/review-gate.ts';
 import { readUiState, uiStatePath } from '../ui-state.ts';
 import { agentHomePaths, cezarHomeDir, expandTilde, isAbsolutePath } from '../paths.ts';
 import { renameWithRetry } from '../fs-rename.ts';
-import { isLoopbackHostHeader, normalizeHostname, resolveCapabilities } from './capabilities.ts';
+import { isLoopbackHostHeader, lanClientScope, normalizeHostname, resolveCapabilities } from './capabilities.ts';
+import type { LanAccess } from './lan-access.ts';
 import { createSocketHub, type SocketHub, type WsUpgradeVerdict } from './ws.ts';
 import { applyKeepAlive } from './keep-alive.ts';
 import { browseDirectory, isInsideBrowseRoot, isLexicallyInsideBrowseRoot, resolveBrowseRoot } from './fs-browse.ts';
@@ -303,10 +304,12 @@ import {
 } from '../telemetry.ts';
 import {
   setTelemetryConsentInputSchema,
+  setSecurityLanInputSchema,
   telemetryErrorInputSchema,
   telemetryEventInputSchema,
   telemetryPageInputSchema,
   type TelemetryConsentPayload,
+  type SecurityLanStatus,
 } from '@open-mercato/cezar-contract';
 import { ProviderRuntimeAuthObserver } from './provider-auth-runtime.ts';
 import {
@@ -419,6 +422,9 @@ export interface ServerDeps {
   /** The Design Mode proxies behind `POST /api/v1/preview/design-proxy` (src/server/preview/).
    *  Injected by tests that need to close the listeners they opened. */
   designProxies?: DesignProxies;
+  /** The opt-in LAN listener (spec 2026-10-20-lan-basic-auth-https). `startServer` builds it;
+   *  absent, `/security/lan` reports LAN access unavailable and no request is a LAN request. */
+  lanAccess?: LanAccess;
   /** WebSocket subscription hub (`/api/v1/ws`, src/server/ws.ts). `createApp`
    *  only registers topics on it — `startServer` builds one and attaches it
    *  to the HTTP server it binds. Optional so legacy callers/tests change
@@ -1640,6 +1646,33 @@ export function createApp(deps: ServerDeps) {
     }, { code: 'http_handler_failed', sid: deviceSid(c.req.header('x-cezar-sid')) });
     return c.text('Internal Server Error', 500);
   });
+
+  // ---- LAN gate (spec 2026-10-20-lan-basic-auth-https) -----------------------
+  // Only sockets the LAN listener handed over reach this branch; loopback requests pass straight
+  // through to the #426 guard below, unchanged. A LAN request must name one of the addresses we
+  // bound (a DNS-rebound name never does) and carry the Basic credentials, on EVERY path — the
+  // shell and assets included, which is what makes the browser ask once and then reuse them.
+  // It is then handled inside `lanClientScope`, so every `capabilities()` call answers as hosted.
+  const lanAccess = deps.lanAccess;
+  if (lanAccess) {
+    app.use('*', async (c, next) => {
+      const socket = (c.env as { incoming?: IncomingMessage } | undefined)?.incoming?.socket;
+      if (!lanAccess.isLanSocket(socket)) return next();
+      if (!lanAccess.isAllowedHost(c.req.header('host'))) {
+        return c.json({ error: 'forbidden: unexpected Host header for LAN access' }, 403);
+      }
+      const verdict = await lanAccess.authorize(c.req.header('authorization'), socket?.remoteAddress);
+      if (verdict === 'throttled') {
+        return c.json({ error: 'too many failed sign-ins from this address — try again in a few minutes' }, 429);
+      }
+      if (verdict === 'challenge') {
+        return c.text('cezar: sign in with the LAN access username and password\n', 401, {
+          'WWW-Authenticate': 'Basic realm="cezar", charset="UTF-8"',
+        });
+      }
+      return lanClientScope.run(true, next);
+    });
+  }
 
   // Reject oversized request bodies before they reach any handler (#429). GETs
   // and SSE carry no body, so this only ever gates the mutating routes.
@@ -7642,6 +7675,29 @@ export function createApp(deps: ServerDeps) {
     blockedBy: telemetryBlockedBy(),
     endpoint: (process.env.CEZ_TELEMETRY_URL || DEFAULT_TELEMETRY_URL).replace(/\/+$/, ''),
   });
+  // LAN access (spec 2026-10-20-lan-basic-auth-https). Readable from anywhere the request got in;
+  // changed only from this machine — a LAN client could otherwise re-key or widen its own access.
+  const lanUnavailable: SecurityLanStatus = {
+    available: false, editable: false, lanAccess: false, active: false, authConfigured: false, username: null,
+    port: 0, tlsEnabled: false, lanIp: null, lanUrls: [], certFingerprint: null, error: null,
+  };
+  const securityRoutes = new Hono()
+    .get('/security/lan', async (c) =>
+      c.json(lanAccess ? await lanAccess.status(capabilities().localHandoff) : lanUnavailable))
+    .put(
+      '/security/lan',
+      jsonZodValidator(setSecurityLanInputSchema, { message: 'invalid LAN access settings' }),
+      async (c) => {
+        if (!lanAccess) return c.json({ error: 'LAN access is not available on this server' }, 409);
+        if (!capabilities().localHandoff) {
+          return c.json({ error: 'LAN access can only be changed from this machine' }, 409);
+        }
+        const result = await lanAccess.apply(c.req.valid('json'));
+        if (!result.ok) return c.json({ error: result.error }, result.status);
+        return c.json(await lanAccess.status(true));
+      },
+    );
+
   const telemetryRoutes = new Hono()
     .get('/telemetry/consent', async (c) => c.json(telemetryConsentBody(await loadTelemetryConsent())))
     .put(
@@ -7713,7 +7769,8 @@ export function createApp(deps: ServerDeps) {
     .route('/', runsIndexRoutes)
     .route('/', dashboardRoutes(dashboard, () => ({ tokens: capabilities().tokenUsageMetrics, cost: capabilities().costMetrics }), () => capabilities().automations))
     .route('/', workspaceEventsRoutes)
-    .route('/', telemetryRoutes);
+    .route('/', telemetryRoutes)
+    .route('/', securityRoutes);
 
   // ---- mount ---------------------------------------------------------------
   // Scoped first, then the unscoped alias bound to the boot project. The paths are disjoint (no
