@@ -46,7 +46,7 @@ import {
   type AutomationDefinition,
 } from '../automations/types.ts';
 import { trackerTriggerSchema, trackerAutomationOptionsSchema, trackerAutomationOptionsQuerySchema, automationScheduleSchema, localTimeZone, nextOccurrence } from '@open-mercato/cezar-contract';
-import type { IncomingMessage } from 'node:http';
+import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import { access, constants as fsConstants, mkdir, readFile, realpath, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
@@ -273,8 +273,10 @@ import { reviewGateEnabled } from '../runs/review-gate.ts';
 import { readUiState, uiStatePath } from '../ui-state.ts';
 import { agentHomePaths, cezarHomeDir, expandTilde, isAbsolutePath } from '../paths.ts';
 import { renameWithRetry } from '../fs-rename.ts';
-import { isLoopbackHostHeader, lanClientScope, normalizeHostname, resolveCapabilities } from './capabilities.ts';
-import type { LanAccess } from './lan-access.ts';
+import { isLoopbackHost, isLoopbackHostHeader, lanClientScope, normalizeHostname, resolveCapabilities } from './capabilities.ts';
+import { LanAccess } from './lan-access.ts';
+import { hashPassword, parseBasicAuth, safeEqualString, verifyPassword } from './auth-crypto.ts';
+import { loadOrCreateCert } from './certs.ts';
 import { createSocketHub, type SocketHub, type WsUpgradeVerdict } from './ws.ts';
 import { applyKeepAlive } from './keep-alive.ts';
 import { browseDirectory, isInsideBrowseRoot, isLexicallyInsideBrowseRoot, resolveBrowseRoot } from './fs-browse.ts';
@@ -7828,6 +7830,12 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
   // workspace scheduler below is gated on it. Read per call rather than captured, for the same
   // reason `capabilities()` is inside `createApp`: tests flip the variable between apps.
   const automationsEnabled = () => resolveCapabilities(process.env, deps.bindHost).automations;
+  // Hosted mode already has a perimeter (its reverse proxy); LAN access is for a loopback cockpit.
+  const lanAccess = deps.lanAccess ?? new LanAccess({
+    hashPassword, verifyPassword, parseBasicAuth, safeEqualString, loadOrCreateCert,
+    available: () => process.env.CEZ_REMOTE !== '1' && isLoopbackHost(deps.bindHost),
+    ...(deps.workspaceConfig ? { config: deps.workspaceConfig } : {}),
+  });
   let rescheduleAutomations = () => {};
   const appCleanups: Array<() => void> = [];
   const app = createApp({
@@ -7839,6 +7847,7 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     skillsUpdate,
     socketHub,
     automationsChanged: () => rescheduleAutomations(),
+    lanAccess,
   });
   // SECURITY: default to loopback. This server executes agents locally and its endpoints are
   // same-origin-trusted (only /api/health is CORS-open); binding to a non-loopback host would
@@ -7930,6 +7939,15 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     }
   });
   server.once('listening', () => {
+    // The port actually bound: the LAN side shares it, and a test's `0` is not a port.
+    const address = server.address();
+    void lanAccess.attach(server as HttpServer, typeof address === 'object' && address ? address.port : port)
+      .then(() => lanAccess.status(true))
+      .then((lan) => {
+        if (lan.active) console.log(`  LAN → ${lan.lanUrls.join(', ')} (HTTPS, sign-in required)\n`);
+        else if (lan.lanAccess && lan.error) console.log(`  ⚠ LAN access is on but not listening: ${lan.error}\n`);
+      })
+      .catch(() => undefined);
     void listProjects().then((projects) => {
       if (shutdownPromise) return;
       const all = projects.some((project) => project.root === deps.repoRoot)
@@ -7951,7 +7969,7 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
     }).catch(() => undefined);
   });
   server.once('close', () => { for (const cleanup of appCleanups) cleanup(); unsubscribe(); coordinator.stop(); automationScheduler.stop(); });
-  socketHub.attach(server, (req) => verifyWsUpgrade(req, deps.bindHost));
+  socketHub.attach(server, (req) => verifyWsUpgrade(req, deps.bindHost, lanAccess));
   return Object.assign(server, {
     shutdownLifecycle(): Promise<void> {
       if (shutdownPromise) return shutdownPromise;
@@ -8004,9 +8022,18 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
  * provably the cockpit itself: a same-authority Origin, a no-Origin native
  * client, or a dev proxy the browser vouches for via `Sec-Fetch-Site`.
  */
-export function verifyWsUpgrade(req: IncomingMessage, bindHost?: string): WsUpgradeVerdict {
+export function verifyWsUpgrade(req: IncomingMessage, bindHost?: string, lanAccess?: LanAccess): WsUpgradeVerdict {
   const host = req.headers.host;
   const hostName = hostnameOfHost(host);
+  // A LAN socket (spec 2026-10-20-lan-basic-auth-https): our own LAN Host, credentials the HTTP
+  // gate already verified (the page signed in before it opened the socket), and the cockpit's
+  // own origin — no loopback dev-proxy fallback applies to another machine.
+  if (lanAccess?.isLanSocket(req.socket)) {
+    if (!lanAccess.isAllowedHost(host) || !lanAccess.isVerified(req.headers.authorization)) return false;
+    const lanOrigin = req.headers.origin;
+    if (lanOrigin === undefined) return { trusted: true };
+    return authorityOfOrigin(lanOrigin) === authorityOfHost(host) ? { trusted: true } : false;
+  }
   const hosted = !resolveCapabilities(process.env, bindHost).localHandoff;
   if (!hosted && !isLoopbackHostHeader(hostName)) return false;
   const origin = req.headers.origin;

@@ -715,6 +715,28 @@ none of its own. [Details →](server-install/ubuntu-vps.md#the-box-already-has-
 See the **[Remote access overview](server-install/README.md)** for how it
 works and how to redeploy new versions.
 
+### From another device on your network (Settings → Security)
+
+To watch runs from a laptop on the same LAN, no server install is needed: on the
+machine running cezar, open **Settings → Security**, switch on **Allow LAN
+access**, pick a username and password (8+ characters) and save. cezar then also
+listens on this machine's LAN addresses — **HTTPS only**, with a self-signed
+certificate kept in `~/.cezar/certs/`, behind HTTP Basic Auth — and shows the
+`https://<lan-ip>:<port>` address to open.
+
+- The first visit from another device shows a certificate warning. Compare the
+  certificate's SHA-256 fingerprint with the one Settings shows, then proceed.
+- `localhost` keeps working exactly as before: no password, full desktop
+  features. LAN browsers get the hosted-mode cockpit (no editor or terminal
+  handoff, agent config read-only) and can never change LAN access themselves.
+- Locked out? Open the cockpit on the machine itself, or run `cezar auth reset`
+  there (LAN off, credentials forgotten) and restart cezar.
+- The password is stored as a salted scrypt hash in `~/.cezar/config.json`,
+  never in plain text. Ten failed sign-ins from one address pause it for five
+  minutes.
+- Not available on a hosted cockpit (`CEZ_REMOTE=1`, `--bind-host`), whose
+  reverse proxy already owns authentication.
+
 ---
 
 ## Configuration (optional)

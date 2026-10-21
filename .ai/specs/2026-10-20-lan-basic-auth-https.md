@@ -2,7 +2,7 @@
 
 - **Date:** 2026-10-20
 - **Category:** feature, security
-- **Status:** ready-for-implementation
+- **Status:** implemented (see § Resolved during implementation)
 - **Source Brief:** [.ai/specs/briefs/2026-10-20-lan-basic-auth-https.md](file:///D:/cezar/.ai/specs/briefs/2026-10-20-lan-basic-auth-https.md)
 
 ---
@@ -39,6 +39,37 @@ Provide a native, secure, single-operator remote LAN experience directly in the 
 4. **Internal Bearer Token (`CEZ_INTERNAL_TOKEN`):** On startup, Cezar generates a high-entropy internal token. Local child tasks and the `cez` CLI send `Authorization: Bearer <token>`, bypassing Basic Auth prompts while `Host` header checks remain strictly enforced.
 5. **Per-Request `localHandoff` Detection:** Instead of a boot-time boolean, `capabilities.localHandoff` is evaluated per request: requests originating from `127.0.0.1` / `localhost` keep full desktop capabilities; LAN requests are scoped safely.
 6. **In-Process Socket Rebinding:** Toggling LAN access closes the active HTTP/HTTPS listener socket and re-opens it on the new interface (`0.0.0.0` or `127.0.0.1`) in-process, without terminating Node.js.
+
+---
+
+## 📝 Resolved during implementation
+
+Three parts of the proposal were changed while building it. Each kept the goal and removed a cost.
+
+1. **No rebind; a second listener instead.** Closing the loopback socket and reopening it on
+   `0.0.0.0` with TLS would have moved every loopback client — the `cez` CLIs (`CEZ_API_URL` is
+   `http://127.0.0.1:<port>`), the Vite dev proxy, the desktop shell, supervisors — onto HTTPS
+   with a self-signed certificate, and binding a wildcard next to a specific address is
+   platform-dependent. The loopback `http.Server` is never touched. LAN access opens a separate
+   `net.Server` on each non-loopback IPv4 address (same port), terminates TLS there and hands the
+   decrypted socket to the SAME `http.Server`, so routes, SSE, WebSocket upgrades and keep-alive
+   are shared. Plain HTTP on the LAN port gets a `308` to HTTPS. `listeningHost` in the contract
+   became `lanUrls` (the addresses actually bound) plus `active`/`error`.
+2. **No `CEZ_INTERNAL_TOKEN`.** With loopback untouched, local callers keep the #426 Host/Origin
+   guard — which is what defeats DNS rebinding — and need no credential. A per-boot token in
+   every agent's environment would only have added a leakable credential that also works from the
+   LAN. The `cez` CLIs are unchanged.
+3. **Per-request capabilities through async context.** A request from the LAN listener runs inside
+   `lanClientScope` (`capabilities.ts`), so every existing `capabilities()` call answers as hosted
+   (`localHandoff`, `terminal`, `designMode` off) without threading the request through ~30 call
+   sites; loopback requests are unchanged.
+
+Also added: `PUT /security/lan` is refused (`409`) from the LAN — a LAN client cannot re-key or
+widen its own access; credential changes and switching off drop every open LAN socket; ten failed
+sign-ins per address answer `429` for five minutes; verified `Authorization` headers are cached
+by SHA-256 so a page load costs one scrypt; the status shows the certificate's SHA-256 fingerprint
+so the browser warning can be checked. LAN access is unavailable on a hosted cockpit
+(`CEZ_REMOTE=1`, non-loopback `--bind-host`). Recovery is `cezar auth [status|reset]`.
 
 ---
 
@@ -102,7 +133,7 @@ Stored in the user-level configuration file:
 ```
 
 - When `security.lanAccess` is `false`, Cezar binds strictly to `127.0.0.1` (HTTP).
-- When `security.lanAccess` is `true`, Cezar binds to `0.0.0.0` with TLS and Basic Auth enforced.
+- When `security.lanAccess` is `true`, Cezar ALSO listens on each LAN IPv4 address, TLS and Basic Auth enforced there; `127.0.0.1` is unchanged.
 - **Zero-config default:** Absent or empty `security` block defaults to `lanAccess: false`, zero files written, zero prompt.
 
 ### 2. Certificates Directory: `~/.cezar/certs/`
@@ -122,13 +153,18 @@ Defined in `packages/contract`:
 **Response (`200 OK`):**
 ```ts
 export const securityLanStatusSchema = z.object({
-  lanAccess: z.boolean(),
+  available: z.boolean(),      // false on a hosted cockpit
+  editable: z.boolean(),       // the request came over loopback
+  lanAccess: z.boolean(),      // what was asked for
+  active: z.boolean(),         // the LAN listener is bound right now
   authConfigured: z.boolean(),
   username: z.string().nullable(),
-  listeningHost: z.string(), // "127.0.0.1" or "0.0.0.0"
-  port: z.number(),
+  port: z.number().int(),
   tlsEnabled: z.boolean(),
   lanIp: z.string().nullable(), // detected host LAN IP e.g. "192.168.1.50"
+  lanUrls: z.array(z.string()), // e.g. ["https://192.168.1.50:4321"]
+  certFingerprint: z.string().nullable(),
+  error: z.string().nullable(), // why lanAccess and active differ
 });
 ```
 
@@ -146,7 +182,8 @@ export const setSecurityLanInputSchema = z.object({
 - If `lanAccess` is set to `true`, `username` and `password` must be present (or previously configured).
 - Validates password length ($\ge 8$ chars).
 - Calculates `scrypt` hash with cryptographically secure random 16-byte salt (`crypto.randomBytes(16)`).
-- Triggers immediate in-process socket rebind.
+- Opens or closes the LAN listener in-process; the loopback listener is never rebound.
+- `409` from a LAN client or on a hosted cockpit.
 
 ---
 
