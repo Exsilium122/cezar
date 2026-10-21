@@ -228,6 +228,17 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
     expect(JSON.parse((await loopback('GET', '/api/v1/health')).body).capabilities.localHandoff).toBe(true);
   });
 
+  it('a LAN read that refreshes the shared health cache never changes what loopback sees', async () => {
+    await enable();
+    expect(JSON.parse((await loopback('GET', '/api/v1/health')).body).capabilities.localHandoff).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 5_200)); // past the 5 s TTL: the next read refreshes
+    expect(JSON.parse((await overLan('GET', '/api/v1/health', AUTH)).body).capabilities.localHandoff).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 1_000)); // let that background refresh land
+    const local = JSON.parse((await loopback('GET', '/api/v1/health')).body);
+    expect(local.capabilities.localHandoff).toBe(true);
+    expect(local.repoRoot).toBe(repoRoot);
+  }, 20_000);
+
   it('rejects a foreign Host on the LAN side even with valid credentials (DNS rebinding)', async () => {
     await enable();
     const rebound = await overLan('GET', '/api/v1/health', { ...AUTH, host: `rebind.attacker.test:${port}` });

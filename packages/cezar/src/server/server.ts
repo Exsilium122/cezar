@@ -1996,7 +1996,9 @@ export function createApp(deps: ServerDeps) {
     if (healthInFlight) return healthInFlight;
     healthInFlight = (async () => {
       try {
-        const payload = await healthSnapshot();
+        // Computed as the machine sees itself even when a LAN request triggered the refresh: the
+        // cache is shared, and `scopedHealth` re-derives the LAN view per reader.
+        const payload = await lanClientScope.exit(() => healthSnapshot());
         const body = JSON.stringify(payload);
         const changed = body !== healthCache?.body;
         healthCache = { at: Date.now(), payload, body };
