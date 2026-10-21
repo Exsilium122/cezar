@@ -22,6 +22,8 @@ import { toolDisplay } from './tool-display.ts';
 
 export interface AntigravityUiState {
   readonly sessionId?: string;
+  /** Built for a `--conversation` resume, where `result.usage` already counts earlier processes. */
+  readonly resumed: boolean;
   readonly sessionStarted: boolean;
   readonly turnSeq: number;
   /** The open turn, or null between a `result` and the next turn's first step. */
@@ -47,6 +49,7 @@ export interface AntigravityMapping {
 export function createAntigravityUiState(sessionId?: string): AntigravityUiState {
   return {
     ...(sessionId ? { sessionId } : {}),
+    resumed: sessionId !== undefined,
     sessionStarted: false,
     turnSeq: 0,
     turnId: null,
@@ -280,7 +283,7 @@ export function mapAntigravityMessage(raw: unknown, previous: AntigravityUiState
     }
     // No per-step usage at all (an older CLI, a turn that failed before a step): fall back to the
     // result's figure, which is only exact for the first turn of a fresh conversation.
-    const turnUsage = state.turnUsage ?? (state.sessionUsage === null ? stepUsage(payload.usage) : null);
+    const turnUsage = state.turnUsage ?? (state.sessionUsage === null && !state.resumed ? stepUsage(payload.usage) : null);
     events.push({ type: 'turn.completed', turnId: state.turnId!, stopReason, ...(turnUsage ? { usage: turnUsage } : {}) });
     if (turnUsage) {
       const sessionUsage = addUsage(state.sessionUsage, turnUsage);

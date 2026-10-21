@@ -6,6 +6,7 @@ import { AGENT_MODELS_LOCKED_ENV } from './agent-model-policy.ts';
 import { profileEnv } from './agent-profiles.ts';
 import { isSignalTerminationExit } from './agent-runner.ts';
 import { resolveClaudeBin } from './claude-bin.ts';
+import { resolveAntigravityBin } from './antigravity-runner.ts';
 import { isForeignCursorAgent, resolveCursorAgentBin } from './cursor-bin.ts';
 import { quoteExecutable, withEnvPrefix } from './shell-env.ts';
 import { probeJunieAuthentication } from './junie-auth-probe.ts';
@@ -500,7 +501,7 @@ const DESCRIPTORS: readonly ProviderDescriptor[] = [
   {
     id: 'antigravity',
     overrideEnv: 'CEZ_AGY_BIN',
-    executable: () => process.env.CEZ_AGY_BIN ?? 'agy',
+    executable: () => resolveAntigravityBin(),
     // `agy models` needs a session: signed in it lists the account's models and exits 0 (agy 1.4.0),
     // signed out it exits 1 asking to sign in — without prompting and without spending a request.
     statusArgs: ['models'],

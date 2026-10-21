@@ -101,6 +101,17 @@ describe('Antigravity stream mapping (live agy 1.4.0 captures)', () => {
     expect(completed.usage?.input).toBe(15467);
   });
 
+  it('falls back to result.usage only on a fresh conversation, never on a resume', () => {
+    const result = { event: 'result', result: { status: 'SUCCESS', response: 'hi', usage: { input_tokens: 75006, output_tokens: 10 } } };
+    const opened = (state: AntigravityUiState) =>
+      mapAntigravityMessage({ event: 'step_update', step_update: { step_index: 1, step_type: 'user_input', state: 'DONE' } }, state).state;
+    const fresh = mapAntigravityMessage(result, opened(createAntigravityUiState()));
+    expect(fresh.events).toContainEqual(expect.objectContaining({ type: 'usage.updated' }));
+    const resumed = mapAntigravityMessage(result, opened(createAntigravityUiState('conv-1')));
+    expect(resumed.events.some((e) => e.type === 'usage.updated')).toBe(false);
+    expect(resumed.state.tokensUsed).toBe(0);
+  });
+
   it('reports a failed turn as an error stop reason, non-fatal at the mapper level', () => {
     const { events, v1 } = replay('bad-model');
     expect(events).toContainEqual(expect.objectContaining({ type: 'turn.completed', stopReason: 'error' }));

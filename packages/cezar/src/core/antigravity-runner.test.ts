@@ -163,6 +163,29 @@ describe('Antigravity runner', () => {
     expect(v1.filter((e) => e.type === 'error')).toHaveLength(1);
   });
 
+  it('reports a later exit with its own stderr, not an earlier turn error', async () => {
+    const bin = await script(`
+import { createInterface } from 'node:readline';
+const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+let turn = 0;
+for await (const _line of createInterface({ input: process.stdin })) {
+  turn += 1;
+  out({ event: 'result', result: turn === 1 ? { status: 'ERROR', error: 'first turn failed' } : { status: 'SUCCESS', response: 'ok' } });
+  if (turn === 2) {
+    console.error('crashed late');
+    process.exit(5);
+  }
+}
+`);
+    let onTurnEnd: () => void = () => {};
+    const session = new AntigravityRunner({ bin }).startSession({ cwd: tmpdir(), userPrompt: 'one' }, (e) => {
+      if (e.type === 'turn-end') onTurnEnd();
+    });
+    await new Promise<void>((resolve) => { onTurnEnd = resolve; });
+    expect(session.sendMessage([{ type: 'text', text: 'two' }])).toBe(true);
+    await expect(session.result).rejects.toThrow('exited with code 5 — crashed late');
+  });
+
   it('rejects a missing executable without crashing the host', async () => {
     await expect(new AntigravityRunner({ bin: '/no/such/agy' }).run({ cwd: tmpdir(), userPrompt: 'test' })).rejects.toThrow(
       'not found on PATH',

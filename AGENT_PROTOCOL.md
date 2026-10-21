@@ -335,7 +335,8 @@ message items (`text_delta`), `tool` / `subagent` steps → tool / task items, `
 `turn.completed`. Turn usage is the sum of the steps' own `usage` — `result.usage` is
 cumulative for the whole conversation. The wire carries no plan, no reasoning text, no edit
 content and no parent attribution; `__fixtures__/antigravity/README.md` records the live
-captures behind each of those parity exceptions.
+captures behind each of those parity exceptions. Private MCP is a launch-side exception: agy has
+no launch-time MCP channel, so `antigravity` is not in `PRIVATE_MCP_RUNNERS`.
 
 `copilot` shares one vendor-neutral transport and mapper with any future ACP backend
 (`core/acp-client.ts`, `core/acp-ui-mapper.ts`); what differs per agent is a small `AcpDialect`

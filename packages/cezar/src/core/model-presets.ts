@@ -89,7 +89,8 @@ function namesAnotherKnownProvider(model: string, runner: RunnerId): boolean {
 }
 
 /** Runners whose `--model` takes only names from their own catalog, which no other runner accepts
- *  either (`agy models` answers display labels like `Gemini 3.8 Flash (High)`). */
+ *  either (`agy models` answers account-specific slugs like `gemini-3.8-flash-high`, each with a
+ *  display label; `--model` takes the slug). */
 const PRIVATE_MODEL_NAMESPACE: ReadonlySet<RunnerId> = new Set(['antigravity']);
 
 /** Whether a model pinned while the run was on `from` may stay pinned after switching to `to`

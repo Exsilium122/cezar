@@ -160,6 +160,8 @@ export class AntigravityRunner implements AgentRunner {
       }
       if (!write(antigravityUserFrame(text))) return false;
       turnInFlight = true;
+      // An earlier turn's error must not explain a later exit.
+      turnError = undefined;
       return true;
     };
     const armKill = (): void => {

@@ -31,6 +31,11 @@ These are the parity-matrix exceptions in `ui-parity.test.ts`, each observed rat
 - **Sub-agent nesting** — a subagent runs in its own conversation (`conversation_id`,
   `log_uri`); none of its steps appear on the parent's stdout. Its cell is the task item.
 
+One launch-side exception, outside the wire: **private MCP** (`.ai/cezar/mcp.local.json`) does
+not reach agy. agy 1.4.3 has no launch-time MCP flag or config override — only `agy mcp add`,
+which rewrites the user's persistent config — so `antigravity` stays out of
+`PRIVATE_MCP_RUNNERS` and its runs get the standard note naming the servers not attached.
+
 ## Layout and replay
 
 Each `.expected.json` is the exact `UiEvent[]` `antigravity-ui-mapper.ts` produces for its
