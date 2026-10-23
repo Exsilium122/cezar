@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -14,4 +14,8 @@ it('a fresh tmpdir() folder is outside every git work tree, so no fixture can re
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it('tmpdir() is writable so fixtures and sandbox directories can be allocated', () => {
+  expect(() => accessSync(tmpdir(), constants.W_OK)).not.toThrow();
 });

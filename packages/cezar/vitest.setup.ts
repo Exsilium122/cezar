@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeEach } from 'vitest'
@@ -7,6 +7,15 @@ import { afterAll, afterEach, beforeEach } from 'vitest'
 // take a fresh `tmpdir()` folder for "outside any repo" then ran git there: `commitAll` committed
 // the user's dirty files and a landing path pushed HEAD to their remote. So before anything else
 // takes a temp dir, move TMP/TEMP/TMPDIR to a system temp that no git work tree contains.
+function isWritable(dir: string): boolean {
+  try {
+    accessSync(dir, constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function insideGitWorkTree(dir: string): boolean {
   for (let d = dir; ; d = dirname(d)) {
     if (existsSync(join(d, '.git'))) return true
@@ -19,7 +28,7 @@ if (insideGitWorkTree(realpathSync(tmpdir()))) {
     process.platform === 'win32'
       ? [join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'Temp'), join(process.env.SystemRoot || 'C:\\Windows', 'Temp')]
       : ['/tmp', '/var/tmp']
-  const outside = candidates.find((dir) => existsSync(dir) && !insideGitWorkTree(realpathSync(dir)))
+  const outside = candidates.find((dir) => existsSync(dir) && isWritable(dir) && !insideGitWorkTree(realpathSync(dir)))
   if (!outside) {
     throw new Error(`[cez] tmpdir ${tmpdir()} is inside a git work tree and no system temp outside one exists — refusing to run git fixtures in it`)
   }
