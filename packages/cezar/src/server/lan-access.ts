@@ -6,7 +6,7 @@
  * the CLI, `cez task`, the Vite dev proxy, the desktop shell and every supervisor working as
  * before, and it is why no internal bearer token is needed: loopback stays guarded by the #426
  * Host/Origin checks exactly as it is today. LAN sockets are fed into the SAME `http.Server`
- * after the TLS handshake, so routes, SSE, WebSocket upgrades and keep-alive need no second copy;
+ * after the TLS handshake, so routes, SSE and keep-alive need no second copy (WebSocket upgrades are refused on the LAN);
  * `isLanSocket` is how the request side tells the two apart.
  */
 
@@ -172,7 +172,7 @@ export class LanAccess {
   apply(input: SetSecurityLanInput): Promise<LanApplyResult> {
     return this.serialize(async (): Promise<LanApplyResult> => {
       if (!this.deps.available()) {
-        return { ok: false, status: 409, error: 'LAN access is not available on a hosted cockpit — its reverse proxy owns access' };
+        return { ok: false, status: 409, error: 'LAN access is not available on this server' };
       }
       const stored = (await this.config.load()).security?.auth;
       if (input.username !== undefined && input.password === undefined && stored === undefined) {

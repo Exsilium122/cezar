@@ -9,7 +9,7 @@
 
 ## 📝 TLDR
 
-Operators running Cezar on a home/office host machine want to access the cockpit and monitor runs from a secondary device (e.g. laptop) on the same local network. Today, Cezar binds strictly to loopback (`127.0.0.1`) without authentication; binding to `0.0.0.0` exposes the server to anyone on the LAN, strips local desktop handoff capabilities, sends credentials in plaintext, and creates a DNS rebinding vulnerability. This specification introduces an integrated **LAN Access & Security** configuration in Settings: single-user HTTP Basic Auth backed by salted `scrypt` password hashing, automated self-signed HTTPS encryption, an internal bearer token (`CEZ_INTERNAL_TOKEN`) to protect local CLI and agent workflows against DNS rebinding, per-request capability detection to preserve local desktop features on `127.0.0.1`, and in-process socket rebinding to keep `npm run dev` and Windows services uninterrupted.
+Operators running Cezar on a home/office host machine want to access the cockpit and monitor runs from a secondary device (e.g. laptop) on the same local network. Today, Cezar binds strictly to loopback (`127.0.0.1`) without authentication; binding to `0.0.0.0` exposes the server to anyone on the LAN, strips local desktop handoff capabilities, sends credentials in plaintext, and creates a DNS rebinding vulnerability. This specification introduces an integrated **LAN Access & Security** configuration in Settings: single-user HTTP Basic Auth backed by salted `scrypt` password hashing, automated self-signed HTTPS encryption, per-request capability detection to preserve local desktop features on `127.0.0.1` while safely scoping LAN clients, and a dedicated dual-listener architecture where loopback stays plain HTTP and a second TLS listener binds to LAN addresses (superseding earlier designs for an internal bearer token and socket rebinding; see § Resolved during implementation).
 
 ---
 
@@ -36,9 +36,9 @@ Provide a native, secure, single-operator remote LAN experience directly in the 
    - Dynamic Status: Displays active listening address (`127.0.0.1` vs `0.0.0.0`) and TLS status.
 2. **Built-in Self-Signed TLS:** When LAN access is enabled, the server generates (or loads) a self-signed certificate and private key stored in `~/.cezar/certs/` using Node's `node:crypto`.
 3. **HTTP Basic Auth with Scrypt Hashing:** All external LAN requests must supply valid Basic Auth credentials, matched against a salted `scrypt` hash stored in `~/.cezar/config.json`.
-4. **Internal Bearer Token (`CEZ_INTERNAL_TOKEN`):** On startup, Cezar generates a high-entropy internal token. Local child tasks and the `cez` CLI send `Authorization: Bearer <token>`, bypassing Basic Auth prompts while `Host` header checks remain strictly enforced.
-5. **Per-Request `localHandoff` Detection:** Instead of a boot-time boolean, `capabilities.localHandoff` is evaluated per request: requests originating from `127.0.0.1` / `localhost` keep full desktop capabilities; LAN requests are scoped safely.
-6. **In-Process Socket Rebinding:** Toggling LAN access closes the active HTTP/HTTPS listener socket and re-opens it on the new interface (`0.0.0.0` or `127.0.0.1`) in-process, without terminating Node.js.
+4. **Dual Listener Architecture (Supersedes In-Process Socket Rebinding and Internal Bearer Token):** Loopback (`127.0.0.1`) remains plain HTTP, so local child tasks, the Vite proxy, the desktop shell, and the `cez` CLI continue untouched under the #426 Host/Origin guard without needing credentials or bearer tokens. A separate listener on each non-loopback LAN IPv4 address terminates TLS and feeds decrypted sockets into the same HTTP server.
+5. **Per-Request `localHandoff` Detection:** `capabilities.localHandoff` is evaluated per request via `lanClientScope`: requests originating from loopback keep full desktop capabilities; LAN requests run in safe scoped mode.
+6. **In-Process Dynamic Listener Management:** Toggling LAN access opens or closes the dedicated LAN listeners dynamically in-process without restarting Node.js or affecting the loopback listener.
 
 ---
 
@@ -91,32 +91,34 @@ flowchart TD
         MaliciousWeb["Malicious Webpage (DNS Rebind)"]
     end
 
-    subgraph CezarServer["Cezar Server (0.0.0.0:4321 / HTTPS)"]
-        TLS["TLS Termination (Self-Signed Cert in ~/.cezar/certs)"]
-        AuthMiddleware{"Auth Middleware"}
-        HostCheck{"Host Header Check"}
-        CapResolver{"Dynamic Capabilities"}
-        HonoAPI["Hono REST & WS Handlers"]
+    subgraph LoopbackListener["Loopback Listener (127.0.0.1:port / HTTP)"]
+        LoopbackHostCheck{"Loopback Host/Origin Check (#426)"}
+        LocalCap["localHandoff: true (Full Desktop Handoff)"]
     end
 
-    LocalCLI -->|"Bearer CEZ_INTERNAL_TOKEN"| TLS
-    HostBrowser -->|"Host: localhost"| TLS
-    RemoteBrowser -->|"Basic Auth (user:pass)"| TLS
-    MaliciousWeb -->|"Host: attacker.com (Rebind)"| TLS
+    subgraph LanListener["LAN Listener (LAN IPs:port / HTTPS)"]
+        TLS["TLS Termination (Self-Signed Cert in ~/.cezar/certs)"]
+        LanHostCheck{"LAN Host Check (Bound IP/mDNS)"}
+        LanAuth{"Basic Auth Check (Salted Scrypt)"}
+        RemoteCap["localHandoff: false (Safe Scoped Mode)"]
+    end
 
-    TLS --> HostCheck
-    HostCheck -->|Invalid Host| Reject403["403 Forbidden"]
-    HostCheck -->|Valid Host (localhost / LAN IP)| AuthMiddleware
+    subgraph HonoApp["Shared Hono HTTP Application"]
+        HonoAPI["Hono Routes & SSE Handlers (WS Refused on LAN)"]
+    end
 
-    AuthMiddleware -->|Bearer Token matches CEZ_INTERNAL_TOKEN| CapResolver
-    AuthMiddleware -->|Valid Basic Auth credentials| CapResolver
-    AuthMiddleware -->|No/Invalid credentials| Challenge401["401 Unauthorized (Basic Realm)"]
+    HostBrowser -->|"Host: localhost / 127.0.0.1"| LoopbackHostCheck
+    LocalCLI -->|"http://127.0.0.1:port"| LoopbackHostCheck
+    MaliciousWeb -->|"Host: attacker.com (Rebind)"| LoopbackHostCheck
+    LoopbackHostCheck -->|Invalid Host/Origin| Reject403Loop["403 Forbidden"]
+    LoopbackHostCheck -->|Valid Loopback| LocalCap --> HonoAPI
 
-    CapResolver -->|Remote IP is 127.0.0.1| LocalCap["localHandoff: true (VS Code, Terminal active)"]
-    CapResolver -->|Remote IP is LAN| RemoteCap["localHandoff: false (Safe Scoped Mode)"]
-
-    LocalCap --> HonoAPI
-    RemoteCap --> HonoAPI
+    RemoteBrowser -->|"https://<lan-ip>:port"| TLS
+    TLS --> LanHostCheck
+    LanHostCheck -->|Invalid Host| Reject403Lan["403 Forbidden"]
+    LanHostCheck -->|Valid LAN Host| LanAuth
+    LanAuth -->|Invalid/Missing Credentials| Challenge401["401 Unauthorized (Basic Realm)"]
+    LanAuth -->|Valid Basic Auth| RemoteCap --> HonoAPI
 ```
 
 ---

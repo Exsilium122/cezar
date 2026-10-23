@@ -7892,7 +7892,7 @@ export function startServer(deps: ServerDeps, port: number): ServerType & { shut
   // Hosted mode already has a perimeter (its reverse proxy); LAN access is for a loopback cockpit.
   const lanAccess = deps.lanAccess ?? new LanAccess({
     hashPassword, verifyPassword, parseBasicAuth, safeEqualString, loadOrCreateCert,
-    available: () => process.env.CEZ_REMOTE !== '1' && isLoopbackHost(deps.bindHost),
+    available: () => process.env.CEZ_LAN_ACCESS !== '0' && process.env.CEZ_REMOTE !== '1' && isLoopbackHost(deps.bindHost),
     ...(deps.workspaceConfig ? { config: deps.workspaceConfig } : {}),
   });
   let rescheduleAutomations = () => {};

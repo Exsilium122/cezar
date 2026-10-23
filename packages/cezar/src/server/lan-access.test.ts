@@ -68,10 +68,11 @@ describe('LanAccess (unit)', () => {
     expect(config.current.security?.lanAccess).toBe(true);
   });
 
-  it('is refused outright on a hosted cockpit', async () => {
+  it('is refused outright on a hosted cockpit or when disabled by CEZ_LAN_ACCESS=0', async () => {
     available = false;
     expect(await lan().apply({ lanAccess: true, username: 'a', password: '12345678' })).toMatchObject({ ok: false, status: 409 });
     expect(config.current.security).toBeUndefined();
+    expect((await lan().status(true)).available).toBe(false);
     expect((await lan().status(true)).editable).toBe(false);
   });
 
@@ -314,5 +315,28 @@ describe.skipIf(process.platform === 'darwin')('LAN listener through startServer
     agent.destroy();
     await expect(overLan('GET', '/api/v1/health', AUTH)).rejects.toThrow();
     expect((await loopback('GET', '/api/v1/health')).status).toBe(200);
+  });
+
+  it('respects CEZ_LAN_ACCESS=0 to disable LAN access completely', async () => {
+    process.env.CEZ_LAN_ACCESS = '0';
+    try {
+      const s = startServer({
+        repoRoot, store,
+        manager: { isActive: () => false } as unknown as RunManager,
+        version: '0.0.0-test',
+        providerAuth: connectedProviderAuth(),
+      }, 0);
+      await new Promise<void>((resolve) => s.once('listening', () => resolve()));
+      const testPort = (s.address() as { port: number }).port;
+      const res = await new Promise<Reply>((resolve, reject) => {
+        const req = httpRequest({ host: '127.0.0.1', port: testPort, method: 'GET', path: '/api/v1/security/lan', agent: false }, collect(resolve));
+        req.on('error', reject);
+        req.end();
+      });
+      expect(JSON.parse(res.body)).toMatchObject({ available: false, editable: false });
+      await new Promise<void>((resolve) => s.close(() => resolve()));
+    } finally {
+      delete process.env.CEZ_LAN_ACCESS;
+    }
   });
 });
