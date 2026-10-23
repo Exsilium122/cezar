@@ -362,35 +362,36 @@ export async function loadWorkspaceConfig(path: string = workspaceConfigPath()):
  *  both the config and its snapshot — the Windows registry wipe this guards. */
 async function readWorkspaceConfig(path: string, strict: boolean): Promise<WorkspaceConfig> {
   let raw: string | null = null;
-  let unreadable: unknown;
+  let unreadable: { path: string; error: unknown } | undefined;
   try {
     raw = await readConfigText(path);
   } catch (error) {
-    unreadable = error; // the backup below is the next chance
+    unreadable = { path, error }; // the backup below is the next chance
   }
   if (raw !== null && raw.trim() !== '') {
     const parsed = parseWorkspaceConfig(raw);
     if (parsed) return parsed;
   }
+  const backupPath = workspaceConfigBackupPath(path);
   const restored = await loadWorkspaceConfigBackup(path).catch((error: unknown) => {
-    unreadable ??= error;
+    unreadable ??= { path: backupPath, error };
     return null;
   });
   if (restored) {
     const cause = unreadable !== undefined ? 'is unreadable' : raw === null ? 'is missing' : 'is empty or corrupt';
     console.warn(
-      `[cez] workspace config ${path} ${cause} — restored ${restored.projects.length} project(s) from ${workspaceConfigBackupPath(path)}`,
+      `[cez] workspace config ${path} ${cause} — restored ${restored.projects.length} project(s) from ${backupPath}`,
     );
     return restored;
   }
   if (unreadable !== undefined) {
-    const code = (unreadable as NodeJS.ErrnoException).code ?? 'error';
+    const code = (unreadable.error as NodeJS.ErrnoException).code ?? 'error';
     if (strict) {
-      throw new WorkspaceConfigUnreadableError(`[cez] cannot read ${path} (${code}) — refusing to overwrite it`, {
-        cause: unreadable,
+      throw new WorkspaceConfigUnreadableError(`[cez] cannot read ${unreadable.path} (${code}) — refusing to overwrite it`, {
+        cause: unreadable.error,
       });
     }
-    console.warn(`[cez] workspace config ${path} is unreadable (${code}) — using defaults for now`);
+    console.warn(`[cez] workspace config ${unreadable.path} is unreadable (${code}) — using defaults for now`);
     return defaultWorkspaceConfig();
   }
   if (raw === null) return defaultWorkspaceConfig();

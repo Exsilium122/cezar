@@ -556,6 +556,28 @@ describe('workspace config', () => {
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('is unreadable (EACCES)'));
       });
 
+      it('names the snapshot when a corrupt config encounters an unreadable snapshot', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        writeFileSync(workspaceConfigPath(), '{ corrupt json', 'utf8');
+        vi.spyOn(fsPromises, 'readFile').mockImplementation(((path: unknown, ...rest: unknown[]) => {
+          if (String(path) === workspaceConfigBackupPath()) {
+            return Promise.reject(Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' }));
+          }
+          return (realReadFile as (...args: unknown[]) => Promise<unknown>)(path, ...rest);
+        }) as typeof fsPromises.readFile);
+
+        expect((await loadWorkspaceConfig()).projects).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+          `[cez] workspace config ${workspaceConfigBackupPath()} is unreadable (EBUSY) — using defaults for now`,
+        );
+
+        await expect(
+          mergeWriteWorkspaceConfig((config) => {
+            config.lastActiveOn = '2026-10-23';
+          }),
+        ).rejects.toThrow(`[cez] cannot read ${workspaceConfigBackupPath()} (EBUSY) — refusing to overwrite it`);
+      });
+
       it('a fresh home (nothing to read) still writes the zero-config defaults', async () => {
         const written = await mergeWriteWorkspaceConfig((config) => {
           config.lastActiveOn = '2026-10-23';
