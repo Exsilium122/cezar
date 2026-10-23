@@ -12,7 +12,7 @@
 
 ### Phase 1: Workflow Guard and Validation
 
-- [ ] 1.1 Add `github.repository == 'open-mercato/cezar'` guard to job `nightly` in `.github/workflows/nightly.yml`
+- [x] 1.1 Add `github.repository == 'open-mercato/cezar'` guard to job `nightly` in `.github/workflows/nightly.yml`
 - [ ] 1.2 Validate workflow YAML syntax and run repository verification checks
 
 ## Risks
@@ -25,5 +25,5 @@
 
 ### Phase 1: Workflow Guard and Validation
 
-- [ ] 1.1 Add repository guard to nightly workflow
+- [x] 1.1 Add repository guard to nightly workflow — a219caba
 - [ ] 1.2 Validate workflow syntax and verification gate
