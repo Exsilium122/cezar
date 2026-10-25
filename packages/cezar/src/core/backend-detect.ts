@@ -5,11 +5,12 @@ import { resolveAntigravityBin } from './antigravity-runner.ts';
 import { isForeignCursorAgent } from './cursor-bin.ts';
 import { cliVersionFrom } from './provider-auth.ts';
 import { resolveClaudeBin } from './claude-bin.ts';
+import { ghEnv } from './gh-env.ts';
 import { spawnableCommand } from './windows-shim.ts';
 
 const execAsync = promisify(execFile);
 /** Every probe goes through `spawnableCommand`, so a Windows `.cmd` override is detected too. */
-const exec = (bin: string, args: readonly string[], opts: { timeout: number }) =>
+const exec = (bin: string, args: readonly string[], opts: { timeout: number; env?: NodeJS.ProcessEnv }) =>
   execAsync(...spawnableCommand(bin, args), opts);
 
 export interface BackendCheck {
@@ -267,7 +268,7 @@ async function probeCopilot(): Promise<BackendCheck> {
 
 async function probeGh(): Promise<BackendCheck> {
   try {
-    const { stdout } = await exec('gh', ['auth', 'token'], { timeout: 10_000 });
+    const { stdout } = await exec('gh', ['auth', 'token'], { timeout: 10_000, env: ghEnv() });
     return { name: 'gh', available: stdout.trim().length > 0, version: 'authenticated' };
   } catch {
     return {
@@ -290,7 +291,7 @@ async function probeGit(): Promise<BackendCheck> {
 /** The host's GitHub token: logged-in `gh` first, `GITHUB_TOKEN` fallback. */
 export async function readHostGithubToken(): Promise<string | null> {
   try {
-    const { stdout } = await exec('gh', ['auth', 'token'], { timeout: 10_000 });
+    const { stdout } = await exec('gh', ['auth', 'token'], { timeout: 10_000, env: ghEnv() });
     const token = stdout.trim();
     if (token) return token;
   } catch {
